@@ -1,0 +1,11 @@
+name = "ski"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Cron trigger: run CFO tick every 5 minutes for all active users
+[triggers]
+crons = ["*/5 * * * *"]
+
+# The scheduled handler in open-next calls this route
+[vars]
+# CRON_SECRET and DATABASE_URL are set as secrets via: wrangler secret put CRON_SECRET

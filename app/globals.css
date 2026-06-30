@@ -1,0 +1,255 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Platform-wide theme: neutral surfaces (Tailwind neutral 800/900) with teal +
+   green kept strictly as accents. Elevation hierarchy:
+   page(0.12) < card neutral-900(0.205) < popover(0.245) < neutral-800(0.269) < border(0.30) */
+:root {
+  --background: oklch(0.12 0 0);            /* deep neutral page */
+  --foreground: oklch(0.985 0 0);          /* near-white */
+  --card: oklch(0.205 0 0);                /* neutral-900 */
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.245 0 0);             /* elevated above cards */
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.7 0.18 170);          /* teal — accent (kept) */
+  --primary-foreground: oklch(0.18 0 0);   /* dark text on teal */
+  --secondary: oklch(0.269 0 0);           /* neutral-800 */
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);               /* neutral-800 */
+  --muted-foreground: oklch(0.708 0 0);    /* neutral-400 secondary text */
+  --accent: oklch(0.65 0.15 150);          /* green — accent (kept) */
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.3 0 0);                /* neutral border line */
+  --input: oklch(0.269 0 0);               /* neutral-800 inputs */
+  --ring: oklch(0.7 0.18 170);             /* teal focus ring */
+  --chart-1: oklch(0.7 0.18 170);
+  --chart-2: oklch(0.65 0.15 150);
+  --chart-3: oklch(0.6 0.1 200);
+  --chart-4: oklch(0.7 0.12 180);
+  --chart-5: oklch(0.75 0.08 160);
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* Ski brand glow accents (teal/mint), aligned to the primary. */
+  --color-brand: #34d399;
+  --color-brand-strong: #10b981;
+  --color-mint: #5eead4;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Pixel-line display headings everywhere, matching the landing. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-geist-pixel-line), "Geist Pixel Line", ui-monospace, monospace;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+/* Atmospheric green wash behind the whole terminal. */
+.ski-aurora {
+  background:
+    radial-gradient(70rem 44rem at 8% -12%, rgba(52, 211, 153, 0.1), transparent 60%),
+    radial-gradient(60rem 40rem at 100% -8%, rgba(45, 212, 191, 0.08), transparent 55%),
+    radial-gradient(90rem 50rem at 50% 120%, rgba(94, 234, 212, 0.07), transparent 60%);
+}
+
+/* Neutral cards — neutral-900 surface with a subtle neutral border. */
+.ski-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+
+.ski-card-hover {
+  transition: border-color 0.2s, background 0.2s;
+}
+.ski-card-hover:hover {
+  border-color: oklch(0.36 0 0);
+  background: oklch(0.24 0 0);
+}
+
+.ski-glow {
+  box-shadow:
+    0 0 0 1px rgba(52, 211, 153, 0.18),
+    0 18px 70px -28px rgba(52, 211, 153, 0.45);
+}
+
+/* The signature mint glow that pools under the command input. */
+.ski-underglow {
+  position: relative;
+}
+.ski-underglow::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -2.5rem;
+  height: 5rem;
+  width: 75%;
+  transform: translateX(-50%);
+  background: radial-gradient(60% 100% at 50% 0%, rgba(94, 234, 212, 0.55), transparent 70%);
+  filter: blur(28px);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.ski-input-ring:focus-within {
+  border-color: rgba(94, 234, 212, 0.5);
+  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.25), 0 0 50px -20px rgba(94, 234, 212, 0.7);
+}
+
+::selection {
+  background: rgba(52, 211, 153, 0.32);
+}
+
+/* Thin scrollbars in scrollable panels. */
+.ski-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.ski-scroll::-webkit-scrollbar-thumb {
+  background: rgba(167, 243, 208, 0.14);
+  border-radius: 999px;
+}
+
+/* Sparkline skeleton shimmer — light streak sweeps left-to-right. */
+@keyframes spark-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* Marquee ticker. */
+@keyframes ski-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.ski-marquee {
+  display: inline-flex;
+  animation: ski-marquee 40s linear infinite;
+}
+.ski-marquee:hover {
+  animation-play-state: paused;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Nexus landing theme — scoped under .nexus so the app's terminal theme is
+   untouched. Provides the shadcn token utilities (bg-card, text-primary, …),
+   the dark token values, fonts, and the landing's custom utilities.
+   ───────────────────────────────────────────────────────────────────────── */
+
+@theme inline {
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-heading: var(--font-geist-pixel-line), "Geist Pixel Line", monospace;
+}
+
+/* Landing wrapper — inherits the neutral :root tokens; only scopes fonts/bg. */
+.nexus {
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), monospace;
+
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  border-color: var(--border);
+}
+
+.nexus h1,
+.nexus h2,
+.nexus h3,
+.nexus h4,
+.nexus h5,
+.nexus h6 {
+  font-family: var(--font-geist-pixel-line), "Geist Pixel Line", monospace;
+  font-weight: 400;
+}
+
+/* Landing custom utilities. */
+.text-gradient {
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  background-image: linear-gradient(135deg, oklch(0.7 0.18 170) 0%, oklch(0.65 0.15 150) 50%, oklch(0.6 0.12 200) 100%);
+}
+.glow {
+  box-shadow:
+    0 0 20px oklch(0.7 0.18 170 / 0.3),
+    0 0 40px oklch(0.7 0.18 170 / 0.2),
+    0 0 60px oklch(0.7 0.18 170 / 0.1);
+}
+.glow-subtle {
+  box-shadow:
+    0 0 15px oklch(0.7 0.18 170 / 0.15),
+    0 0 30px oklch(0.7 0.18 170 / 0.08);
+}
+.card-shadow {
+  box-shadow: rgba(14, 63, 126, 0.04) 0px 0px 0px 1px, rgba(42, 51, 69, 0.04) 0px 1px 1px -0.5px,
+    rgba(42, 51, 70, 0.04) 0px 3px 3px -1.5px, rgba(42, 51, 70, 0.04) 0px 6px 6px -3px,
+    rgba(14, 63, 126, 0.04) 0px 12px 12px -6px, rgba(14, 63, 126, 0.04) 0px 24px 24px -12px;
+}
+.noise-bg {
+  position: relative;
+}
+.noise-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 0;
+}
+.grid-pattern {
+  background-image:
+    linear-gradient(oklch(0.7 0.18 170 / 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(0.7 0.18 170 / 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
