@@ -13,6 +13,8 @@
 
 #![no_std]
 
+pub mod mandate;
+
 use soroban_sdk::{contract, contractimpl, symbol_short, Env, Symbol};
 
 #[contract]
