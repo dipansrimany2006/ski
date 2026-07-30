@@ -13,6 +13,7 @@
 #![no_std]
 
 pub mod errors;
+pub mod kill_switch;
 pub mod mandate;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Symbol};
@@ -101,6 +102,68 @@ impl SkiCfoContract {
     /// Read the mandate for `owner`. Returns an error if none is registered.
     pub fn get_mandate(env: Env, owner: Address) -> Result<Mandate, Error> {
         read_mandate(&env, &owner).ok_or(Error::MandateNotFound)
+    }
+
+    // ── Kill switch & circuit breaker ─────────────────────────────────────────
+
+    /// Flip the kill switch for `owner`. When active, `validate_trade` always rejects.
+    /// Returns the new state: `true` = halted, `false` = resumed.
+    pub fn toggle_kill_switch(env: Env, owner: Address) -> Result<bool, Error> {
+        owner.require_auth();
+        let next = !kill_switch::is_active(&env, &owner);
+        kill_switch::set_active(&env, &owner, next);
+        Ok(next)
+    }
+
+    /// Read whether the kill switch is currently active for `owner`.
+    pub fn is_kill_switch_active(env: Env, owner: Address) -> bool {
+        kill_switch::is_active(&env, &owner)
+    }
+
+    /// Compare `current_value_stroops` against the user's `max_drawdown_bps` mandate.
+    /// Automatically trips the kill switch if the drawdown limit is breached.
+    /// Pass the current total portfolio value; peak is tracked on-chain.
+    /// Returns `true` if the circuit breaker just fired (or was already tripped).
+    pub fn check_circuit_breaker(
+        env: Env,
+        owner: Address,
+        current_value_stroops: i128,
+    ) -> Result<bool, Error> {
+        owner.require_auth();
+
+        let mandate = read_mandate(&env, &owner).ok_or(Error::MandateNotFound)?;
+
+        // Already halted — nothing more to do.
+        if kill_switch::is_active(&env, &owner) {
+            return Ok(true);
+        }
+
+        // Update peak if this is a new high.
+        let stored_peak = kill_switch::read_peak_value(&env, &owner);
+        let peak = if current_value_stroops > stored_peak {
+            kill_switch::write_peak_value(&env, &owner, current_value_stroops);
+            current_value_stroops
+        } else {
+            stored_peak
+        };
+
+        if peak == 0 {
+            return Ok(false);
+        }
+
+        // drawdown_bps = (peak − current) / peak × 10 000
+        let drawdown_bps = if current_value_stroops < peak {
+            ((peak - current_value_stroops) * 10_000 / peak) as u32
+        } else {
+            0
+        };
+
+        if drawdown_bps >= mandate.max_drawdown_bps {
+            kill_switch::set_active(&env, &owner, true);
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     // ── Internal ───────────────────────────────────────────────────────────────
