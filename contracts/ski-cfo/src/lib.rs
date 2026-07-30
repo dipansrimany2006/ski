@@ -4,17 +4,20 @@
 //! Enforces user-defined risk limits deterministically; the LLM layer never touches
 //! these numbers directly.
 //!
-//! Modules (added in subsequent commits):
+//! Modules:
+//!   mandate     — risk parameters per user (drawdown, position size, per-trade cap)
 //!   auth        — scoped trade validation against the mandate
 //!   kill_switch — emergency halt per user
 //!   events      — contract event definitions
 //!   audit       — immutable on-chain CFO decision log
+//!   errors      — typed contract error enum
 
 #![no_std]
 
 pub mod audit;
 pub mod auth;
 pub mod errors;
+pub mod events;
 pub mod kill_switch;
 pub mod mandate;
 
@@ -71,6 +74,7 @@ impl SkiCfoContract {
         };
 
         write_mandate(&env, &m);
+        events::mandate_registered(&env, &m.owner, m.risk_tolerance);
         Ok(m)
     }
 
@@ -101,6 +105,7 @@ impl SkiCfoContract {
         };
 
         write_mandate(&env, &m);
+        events::mandate_updated(&env, &m.owner, m.risk_tolerance);
         Ok(m)
     }
 
@@ -122,19 +127,29 @@ impl SkiCfoContract {
     pub fn validate_trade(
         env: Env,
         owner: Address,
+        asset: Symbol,
         direction: u32,
         size_stroops: i128,
         current_position_stroops: i128,
         total_portfolio_stroops: i128,
     ) -> TradeValidation {
-        auth::validate(
+        let result = auth::validate(
             &env,
             &owner,
             direction,
             size_stroops,
             current_position_stroops,
             total_portfolio_stroops,
-        )
+        );
+        events::trade_validated(
+            &env,
+            &owner,
+            &asset,
+            result.approved,
+            result.final_size_stroops,
+            result.veto_code,
+        );
+        result
     }
 
     // ── Audit log ─────────────────────────────────────────────────────────────
@@ -170,6 +185,7 @@ impl SkiCfoContract {
         };
 
         audit::append_decision(&env, &owner, decision);
+        events::decision_recorded(&env, &owner, &asset, approved, blended_signal_bps);
     }
 
     /// Return the stored decision log for `owner` (up to the last 50 entries,
@@ -186,6 +202,7 @@ impl SkiCfoContract {
         owner.require_auth();
         let next = !kill_switch::is_active(&env, &owner);
         kill_switch::set_active(&env, &owner, next);
+        events::kill_switch_toggled(&env, &owner, next);
         Ok(next)
     }
 
@@ -234,6 +251,7 @@ impl SkiCfoContract {
 
         if drawdown_bps >= mandate.max_drawdown_bps {
             kill_switch::set_active(&env, &owner, true);
+            events::circuit_breaker_tripped(&env, &owner, drawdown_bps);
             return Ok(true);
         }
 
