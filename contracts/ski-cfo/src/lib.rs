@@ -173,7 +173,7 @@ impl SkiCfoContract {
         owner.require_auth();
 
         let decision = Decision {
-            asset,
+            asset: asset.clone(),
             direction,
             proposed_size_stroops,
             final_size_stroops,
