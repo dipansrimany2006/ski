@@ -176,6 +176,33 @@ export default function CFOPage() {
 
   const [sentiment,     setSentiment]     = useState<MarketSentiment | null>(null);
 
+  // On-chain audit log (Soroban)
+  interface OnChainDecision {
+    asset: string;
+    directionLabel: string;
+    finalSizeXlm: number;
+    approved: boolean;
+    vetoReason: string | null;
+    blendedSignal: number;
+    recordedAt: number;
+    ledgerSeq: number;
+  }
+  const [onChainDecisions,  setOnChainDecisions]  = useState<OnChainDecision[]>([]);
+  const [onChainLoading,    setOnChainLoading]    = useState(false);
+  const [onChainContractId, setOnChainContractId] = useState("");
+
+  async function loadOnChainDecisions() {
+    setOnChainLoading(true);
+    try {
+      const res  = await fetch("/api/soroban/decisions");
+      if (!res.ok) return;
+      const data = await res.json() as { decisions: OnChainDecision[]; contractId: string };
+      setOnChainDecisions(data.decisions);
+      setOnChainContractId(data.contractId ?? "");
+    } catch { /* non-fatal */ }
+    finally { setOnChainLoading(false); }
+  }
+
   const loadData = useCallback(async () => {
     const [userRes, decisionsRes, sentimentRes] = await Promise.all([
       fetch("/api/user"),
@@ -204,7 +231,11 @@ export default function CFOPage() {
     }
   }, []);
 
-  useEffect(() => { loadData().finally(() => setLoading(false)); }, [loadData]);
+  useEffect(() => {
+    loadData().finally(() => setLoading(false));
+    loadOnChainDecisions();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadData]);
 
   // Auto-dismiss run message
   useEffect(() => {
@@ -755,6 +786,128 @@ export default function CFOPage() {
                         <span className="text-[11px] text-white/25 text-right tabular-nums whitespace-nowrap">
                           {fmtDate(d.created_at)}
                         </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ── On-chain audit log ────────────────────────────────────── */}
+            <div>
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <div>
+                  <h2 className="text-base font-semibold flex items-center gap-2">
+                    On-chain Audit Log
+                    <span className="inline-flex items-center gap-1 rounded-full bg-yellow-400/10 px-2 py-0.5 text-[10px] font-semibold text-yellow-400">
+                      ⬡ Soroban · testnet
+                    </span>
+                  </h2>
+                  <p className="text-xs text-white/35 mt-0.5">Immutable decisions written to the Stellar testnet contract</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {onChainContractId && (
+                    <a
+                      href={`https://stellar.expert/explorer/testnet/contract/${onChainContractId}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="text-[11px] text-white/30 hover:text-white/60 transition-colors font-mono"
+                    >
+                      {onChainContractId.slice(0, 8)}…{onChainContractId.slice(-6)} ↗
+                    </a>
+                  )}
+                  <button
+                    onClick={loadOnChainDecisions}
+                    disabled={onChainLoading}
+                    className="text-xs text-white/40 hover:text-white/70 border border-white/10 rounded-lg px-3 py-1.5 hover:border-white/20 transition-all disabled:opacity-40"
+                  >
+                    {onChainLoading ? "Loading…" : "Refresh"}
+                  </button>
+                </div>
+              </div>
+
+              {onChainLoading ? (
+                <div className="space-y-2">
+                  {[1,2,3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-white/5" />)}
+                </div>
+              ) : onChainDecisions.length === 0 ? (
+                <div className="rounded-2xl border border-white/8 border-dashed py-12 text-center">
+                  <div className="text-3xl mb-3 opacity-20">⛓</div>
+                  <p className="text-sm font-medium text-white/40 mb-1">No on-chain decisions yet</p>
+                  <p className="text-xs text-white/25">
+                    Decisions are written to Soroban after each CFO run.{" "}
+                    <button onClick={loadOnChainDecisions} className="underline underline-offset-2 hover:text-white/40">Refresh</button>
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-white/8 overflow-hidden">
+                  <div className="grid grid-cols-[80px_80px_1fr_120px_90px_100px] gap-4 px-5 py-3 text-[10px] font-medium text-white/25 uppercase tracking-widest border-b border-white/8 bg-white/[0.015]">
+                    <span>Action</span>
+                    <span>Asset</span>
+                    <span>Signal · Status</span>
+                    <span className="text-right">Size (XLM)</span>
+                    <span className="text-center">Ledger</span>
+                    <span className="text-right">Time</span>
+                  </div>
+
+                  {onChainDecisions.map((d, i) => {
+                    const isBuy  = d.directionLabel === "buy";
+                    const isSell = d.directionLabel === "sell";
+                    const sig    = d.blendedSignal;
+                    const sigColor = sig > 0.08 ? "#10b981" : sig < -0.08 ? "#f43f5e" : "#ffffff30";
+                    const ts = d.recordedAt > 0
+                      ? new Date(d.recordedAt * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+                      : "—";
+
+                    return (
+                      <div
+                        key={i}
+                        className={`grid grid-cols-[80px_80px_1fr_120px_90px_100px] gap-4 px-5 py-3.5 items-center border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors ${i === onChainDecisions.length - 1 ? "border-0" : ""}`}
+                      >
+                        {/* Direction badge */}
+                        <span className={`inline-flex w-fit items-center rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wide ${
+                          isBuy  ? "bg-emerald-500/12 text-emerald-400" :
+                          isSell ? "bg-rose-500/12 text-rose-400" :
+                                   "bg-white/6 text-white/35"
+                        }`}>
+                          {d.directionLabel}
+                        </span>
+
+                        {/* Asset */}
+                        <span className="text-sm font-semibold">{d.asset}</span>
+
+                        {/* Signal + approval status */}
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <div className="relative h-1.5 w-14 rounded-full bg-white/8 overflow-hidden">
+                              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.round(((sig + 1) / 2) * 100)}%`, background: sigColor }} />
+                            </div>
+                            <span className="text-[11px] font-mono tabular-nums" style={{ color: sigColor }}>
+                              {sig > 0 ? "+" : ""}{sig.toFixed(3)}
+                            </span>
+                          </div>
+                          {d.approved ? (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">
+                              ✓ approved
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-white/6 px-1.5 py-0.5 text-[10px] font-medium text-white/30" title={d.vetoReason ?? ""}>
+                              ✕ {d.vetoReason ?? "vetoed"}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Size */}
+                        <span className="text-sm text-right font-mono text-white/55 tabular-nums">
+                          {d.finalSizeXlm > 0 ? `${d.finalSizeXlm.toFixed(2)} XLM` : "—"}
+                        </span>
+
+                        {/* Ledger seq */}
+                        <span className="text-[11px] text-center font-mono text-white/25 tabular-nums">
+                          #{d.ledgerSeq.toLocaleString()}
+                        </span>
+
+                        {/* Timestamp */}
+                        <span className="text-[11px] text-white/25 text-right tabular-nums whitespace-nowrap">{ts}</span>
                       </div>
                     );
                   })}
