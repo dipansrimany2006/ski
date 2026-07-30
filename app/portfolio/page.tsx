@@ -149,6 +149,12 @@ export default function PortfolioPage() {
   const [agentWallet,   setAgentWallet]   = useState<AgentWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
 
+  // On-chain mandate (Soroban / Stellar testnet)
+  type MandateStatus = "idle" | "loading" | "registered" | "none" | "registering" | "error";
+  const [mandateStatus,  setMandateStatus]  = useState<MandateStatus>("idle");
+  const [mandateData,    setMandateData]    = useState<{ contractId: string; explorerUrl: string; action?: string } | null>(null);
+  const [mandateError,   setMandateError]   = useState("");
+
   // Deposit modal
   const [depositOpen,   setDepositOpen]   = useState(false);
   type DepositStep = "form" | "creating" | "pending" | "confirming" | "success" | "error";
@@ -189,6 +195,9 @@ export default function PortfolioPage() {
     // Load agent wallet
     loadAgentWallet();
 
+    // Load on-chain mandate status
+    loadMandate();
+
     const handler = () => setActionMenu(null);
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
@@ -223,6 +232,33 @@ export default function PortfolioPage() {
       // wallet not available
     } finally {
       setWalletLoading(false);
+    }
+  }
+
+  async function loadMandate() {
+    setMandateStatus("loading");
+    try {
+      const res  = await fetch("/api/soroban/mandate");
+      const data = await res.json() as { mandate: unknown; contractId: string; explorerUrl: string };
+      setMandateData({ contractId: data.contractId, explorerUrl: data.explorerUrl });
+      setMandateStatus(data.mandate ? "registered" : "none");
+    } catch {
+      setMandateStatus("none");
+    }
+  }
+
+  async function registerOnChainMandate() {
+    setMandateStatus("registering");
+    setMandateError("");
+    try {
+      const res  = await fetch("/api/soroban/mandate", { method: "POST" });
+      const data = await res.json() as { ok?: boolean; error?: string; contractId: string; explorerUrl: string; action?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Failed to register mandate.");
+      setMandateData({ contractId: data.contractId, explorerUrl: data.explorerUrl, action: data.action });
+      setMandateStatus("registered");
+    } catch (err) {
+      setMandateError(err instanceof Error ? err.message : "Error registering mandate.");
+      setMandateStatus("error");
     }
   }
 
@@ -490,6 +526,64 @@ export default function PortfolioPage() {
             )}
           </div>
         )}
+
+        {/* ── On-chain mandate card ────────────────────────────────────────── */}
+        <div className="mb-6 rounded-2xl border border-white/8 bg-white/[0.02] px-6 py-5">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              {/* Status dot */}
+              <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                mandateStatus === "registered" ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]" :
+                mandateStatus === "registering" || mandateStatus === "loading" ? "bg-amber-400 animate-pulse" :
+                mandateStatus === "error" ? "bg-rose-400" : "bg-white/20"
+              }`} />
+              <div>
+                <p className="text-sm font-semibold text-white">
+                  {mandateStatus === "registered" && (mandateData?.action === "updated" ? "Mandate updated on-chain" : "Mandate registered on-chain")}
+                  {mandateStatus === "none"        && "Mandate not yet on-chain"}
+                  {mandateStatus === "loading"     && "Checking on-chain mandate…"}
+                  {mandateStatus === "registering" && "Signing & submitting to Stellar testnet…"}
+                  {mandateStatus === "error"       && "Registration failed"}
+                  {mandateStatus === "idle"        && "On-chain mandate"}
+                </p>
+                <p className="text-xs text-white/35 mt-0.5 font-mono truncate max-w-xs">
+                  {mandateData?.contractId
+                    ? `Contract: ${mandateData.contractId.slice(0, 12)}…${mandateData.contractId.slice(-6)}`
+                    : "Stellar testnet · Soroban contract"}
+                </p>
+                {mandateError && (
+                  <p className="text-xs text-rose-400 mt-1">{mandateError}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {mandateData?.explorerUrl && (
+                <a
+                  href={mandateData.explorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-white/40 hover:text-white/70 transition-colors underline underline-offset-2"
+                >
+                  View contract ↗
+                </a>
+              )}
+              {(mandateStatus === "none" || mandateStatus === "error" || mandateStatus === "registered") && (
+                <button
+                  onClick={registerOnChainMandate}
+                  disabled={false}
+                  className={`rounded-full px-4 py-2 text-xs font-semibold transition-all ${
+                    mandateStatus === "registered"
+                      ? "border border-white/15 text-white/50 hover:text-white hover:border-white/30"
+                      : "bg-emerald-500 hover:bg-emerald-400 text-black"
+                  }`}
+                >
+                  {mandateStatus === "registered" ? "Re-sync mandate" : "Register mandate"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* ── Tabs ─────────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2 mb-6">
