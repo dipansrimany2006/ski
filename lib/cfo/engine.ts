@@ -15,6 +15,14 @@ import type { SmartMoneySignal }             from "./strategies/smart-money";
 import { runSentimentStrategies }            from "./strategies/sentiment";
 import { buyWithXLM, sellToUSDC } from "@/lib/sdex";
 import { getStellarAsset } from "@/lib/stellar/assets";
+import {
+  validateTrade,
+  recordDecision as recordOnChain,
+  xlmToStroops,
+  DIRECTION_BUY,
+  DIRECTION_SELL,
+} from "@/lib/soroban/contract";
+import { getKeypair } from "@/lib/wallet";
 import { sessionFilter, dayOfWeekFilter }    from "./strategies/time-filters";
 import { kellySize, volScalingMult, computePositionSize } from "./strategies/risk-sizing";
 import { arbitrate }                         from "./arbitration";
@@ -243,8 +251,31 @@ export async function runCFOEngine(ctx: UserContext): Promise<EngineResult> {
         Math.abs(blended), balance, mandate.perTradeCap, volMult, kFraction || 0.1,
       );
 
-      // Step 7 · Mandate guard
+      // Step 7 · Mandate guard (off-chain — fast, no network)
       const guardResult = mandateGuard(rawSize, rawDirection, balance, openPosUsd, totalPortfolioUsd, mandate);
+
+      // Step 7b · On-chain mandate validation via Soroban contract.
+      // Kill switch is a hard block; other on-chain rejections are belt-and-suspenders
+      // (the off-chain guard already caught them). Network errors are non-fatal.
+      if (guardResult.approved && agentAddress) {
+        try {
+          const onChain = await validateTrade({
+            ownerAddress:          agentAddress,
+            asset:                 asset.symbol,
+            direction:             rawDirection === "buy" ? DIRECTION_BUY : DIRECTION_SELL,
+            sizeStoops:            xlmToStroops(guardResult.finalSizeUsd),
+            currentPositionStroops: xlmToStroops(openPosUsd),
+            totalPortfolioStroops:  xlmToStroops(totalPortfolioUsd),
+          });
+          if (!onChain.approved && onChain.veto_code === 7 /* KillSwitchActive */) {
+            guardResult.approved    = false;
+            guardResult.finalSizeUsd = 0;
+            guardResult.vetoReason  = "kill_switch_active_on_chain";
+          }
+        } catch (sorobanErr) {
+          console.warn("[CFO] On-chain validate_trade failed (non-fatal):", sorobanErr);
+        }
+      }
 
       const decision: CFODecision = {
         userId, assetId: asset.id, symbol: asset.symbol, displaySymbol,
@@ -304,7 +335,7 @@ export async function runCFOEngine(ctx: UserContext): Promise<EngineResult> {
 
       decisions.push(decision);
 
-      // Step 9 · Log
+      // Step 9 · Log to DB
       await logDecision(db, {
         userId, assetId: asset.id, symbol: asset.symbol, displaySymbol,
         action: decision.action, blendedSignal: blended,
@@ -315,6 +346,20 @@ export async function runCFOEngine(ctx: UserContext): Promise<EngineResult> {
         priceAtDecision: price, regime: arbitration.regime,
         tradeId: decision.tradeId,
       });
+
+      // Step 9b · Write decision to on-chain audit log (fire-and-forget).
+      if (agentAddress && encryptedKey) {
+        const keypair = getKeypair(encryptedKey);
+        recordOnChain(keypair, {
+          asset:               asset.symbol,
+          direction:           rawDirection === "buy" ? DIRECTION_BUY : DIRECTION_SELL,
+          proposedSizeStroops: xlmToStroops(rawSize),
+          finalSizeStroops:    xlmToStroops(decision.finalSizeUsd),
+          approved:            decision.mandateApproved,
+          vetoCode:            decision.mandateVetoReason === "kill_switch_active_on_chain" ? 7 : 0,
+          blendedSignalBps:    Math.round(blended * 10_000),
+        }).catch(err => console.warn("[CFO] recordDecision on-chain failed (non-fatal):", err));
+      }
     } catch (err) {
       console.error(`[CFO] Error processing ${displaySymbol}:`, err);
     }
