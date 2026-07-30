@@ -12,11 +12,14 @@
 
 #![no_std]
 
+pub mod auth;
 pub mod errors;
 pub mod kill_switch;
 pub mod mandate;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Symbol};
+
+use auth::TradeValidation;
 
 use errors::Error;
 use mandate::{has_mandate, read_mandate, write_mandate, Mandate};
@@ -102,6 +105,34 @@ impl SkiCfoContract {
     /// Read the mandate for `owner`. Returns an error if none is registered.
     pub fn get_mandate(env: Env, owner: Address) -> Result<Mandate, Error> {
         read_mandate(&env, &owner).ok_or(Error::MandateNotFound)
+    }
+
+    // ── Trade validation ───────────────────────────────────────────────────────
+
+    /// Validate a proposed trade against the caller's on-chain mandate.
+    /// Does NOT require auth — read-only check that the CFO engine calls before
+    /// submitting any transaction. Auth is enforced on the mandate mutations.
+    ///
+    /// `direction`                 : 0 = buy, 1 = sell
+    /// `size_stroops`              : proposed trade size in stroops
+    /// `current_position_stroops`  : caller's current holding of this asset
+    /// `total_portfolio_stroops`   : caller's total portfolio value in stroops
+    pub fn validate_trade(
+        env: Env,
+        owner: Address,
+        direction: u32,
+        size_stroops: i128,
+        current_position_stroops: i128,
+        total_portfolio_stroops: i128,
+    ) -> TradeValidation {
+        auth::validate(
+            &env,
+            &owner,
+            direction,
+            size_stroops,
+            current_position_stroops,
+            total_portfolio_stroops,
+        )
     }
 
     // ── Kill switch & circuit breaker ─────────────────────────────────────────

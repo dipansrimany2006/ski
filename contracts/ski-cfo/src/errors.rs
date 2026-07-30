@@ -11,4 +11,6 @@ pub enum Error {
     InvalidPositionBps    = 5,
     InvalidTradeCap       = 6,
     KillSwitchActive      = 7,
+    InvalidDirection      = 8,
+    TradeBelowMinimum     = 9,
 }
