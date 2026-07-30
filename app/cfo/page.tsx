@@ -176,6 +176,11 @@ export default function CFOPage() {
 
   const [sentiment,     setSentiment]     = useState<MarketSentiment | null>(null);
 
+  // On-chain kill switch (Soroban)
+  type KillSwitchState = "idle" | "loading" | "active" | "inactive" | "toggling" | "error";
+  const [ksState,  setKsState]  = useState<KillSwitchState>("idle");
+  const [ksError,  setKsError]  = useState("");
+
   // On-chain audit log (Soroban)
   interface OnChainDecision {
     asset: string;
@@ -190,6 +195,32 @@ export default function CFOPage() {
   const [onChainDecisions,  setOnChainDecisions]  = useState<OnChainDecision[]>([]);
   const [onChainLoading,    setOnChainLoading]    = useState(false);
   const [onChainContractId, setOnChainContractId] = useState("");
+
+  async function loadKillSwitch() {
+    setKsState("loading");
+    try {
+      const res  = await fetch("/api/soroban/kill-switch");
+      const data = await res.json() as { active: boolean; noWallet?: boolean };
+      if (data.noWallet) { setKsState("idle"); return; }
+      setKsState(data.active ? "active" : "inactive");
+    } catch { setKsState("idle"); }
+  }
+
+  async function handleKillSwitchToggle() {
+    setKsState("toggling");
+    setKsError("");
+    try {
+      const res  = await fetch("/api/soroban/kill-switch", { method: "POST" });
+      const data = await res.json() as { ok?: boolean; active?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Toggle failed.");
+      setKsState(data.active ? "active" : "inactive");
+      // If kill switch activated, reflect that the CFO loop is now off
+      if (data.active) setUser(u => u ? { ...u, cfo_active: 0 } : u);
+    } catch (err) {
+      setKsError(err instanceof Error ? err.message : "Error toggling kill switch.");
+      setKsState("error");
+    }
+  }
 
   async function loadOnChainDecisions() {
     setOnChainLoading(true);
@@ -233,6 +264,7 @@ export default function CFOPage() {
 
   useEffect(() => {
     loadData().finally(() => setLoading(false));
+    loadKillSwitch();
     loadOnChainDecisions();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadData]);
@@ -679,6 +711,86 @@ export default function CFOPage() {
                 )}
               </div>
             </div>
+
+            {/* ── On-chain kill switch ──────────────────────────────────── */}
+            {ksState !== "idle" && (
+              <div className={`rounded-2xl border p-5 transition-colors ${
+                ksState === "active"
+                  ? "border-rose-500/40 bg-rose-500/[0.04]"
+                  : "border-white/8 bg-white/[0.02]"
+              }`}>
+                <div className="flex items-center justify-between flex-wrap gap-4">
+
+                  <div className="flex items-center gap-4">
+                    {/* Icon */}
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 border ${
+                      ksState === "active"
+                        ? "border-rose-500/40 bg-rose-500/10"
+                        : "border-white/10 bg-white/5"
+                    }`}>
+                      {ksState === "toggling" || ksState === "loading" ? (
+                        <span className="w-4 h-4 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+                      ) : ksState === "active" ? "🛑" : "✅"}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold">
+                          {ksState === "active"    && "Kill Switch · ACTIVE"}
+                          {ksState === "inactive"  && "Kill Switch · Inactive"}
+                          {ksState === "toggling"  && "Kill Switch · Updating…"}
+                          {ksState === "loading"   && "Kill Switch · Checking…"}
+                          {ksState === "error"     && "Kill Switch · Error"}
+                        </p>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-yellow-400/10 px-2 py-0.5 text-[10px] font-semibold text-yellow-400">
+                          ⬡ Soroban
+                        </span>
+                      </div>
+                      <p className="text-xs text-white/35 mt-0.5">
+                        {ksState === "active"
+                          ? "All on-chain trades are blocked. CFO loop has been paused."
+                          : "CFO is authorised to execute on-chain trades when approved."}
+                      </p>
+                      {ksError && <p className="text-xs text-rose-400 mt-1">{ksError}</p>}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    {ksState === "active" && (
+                      <span className="flex items-center gap-1.5 text-xs text-rose-400 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+                        Trading halted
+                      </span>
+                    )}
+                    {(ksState === "active" || ksState === "inactive" || ksState === "error") && (
+                      <button
+                        onClick={handleKillSwitchToggle}
+                        className={`rounded-full px-5 py-2.5 text-sm font-semibold transition-all ${
+                          ksState === "active"
+                            ? "bg-emerald-500 hover:bg-emerald-400 text-black"
+                            : "bg-rose-500 hover:bg-rose-400 text-white"
+                        }`}
+                      >
+                        {ksState === "active" ? "Resume trading" : "Emergency stop"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Warning banner when active */}
+                {ksState === "active" && (
+                  <div className="mt-4 flex items-start gap-3 rounded-xl bg-rose-500/8 border border-rose-500/20 px-4 py-3 text-xs text-rose-300 leading-relaxed">
+                    <span className="text-base shrink-0">⚠</span>
+                    <span>
+                      The kill switch is enforced on-chain — even if the CFO loop were re-enabled,
+                      every call to <code className="font-mono bg-rose-500/10 px-1 rounded">validate_trade</code> will
+                      return <code className="font-mono bg-rose-500/10 px-1 rounded">veto_code 7</code> until you resume.
+                      Click <strong>Resume trading</strong> to lift the on-chain block.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ── Decision log ──────────────────────────────────────────── */}
             <div>
