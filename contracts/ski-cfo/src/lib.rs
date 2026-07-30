@@ -12,13 +12,15 @@
 
 #![no_std]
 
+pub mod audit;
 pub mod auth;
 pub mod errors;
 pub mod kill_switch;
 pub mod mandate;
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Symbol, Vec};
 
+use audit::Decision;
 use auth::TradeValidation;
 
 use errors::Error;
@@ -133,6 +135,47 @@ impl SkiCfoContract {
             current_position_stroops,
             total_portfolio_stroops,
         )
+    }
+
+    // ── Audit log ─────────────────────────────────────────────────────────────
+
+    /// Record a CFO decision on-chain. Called by the CFO engine after every tick,
+    /// regardless of whether the trade was approved. Requires `owner` auth so only
+    /// the user's own keypair (held by the CFO engine) can write to their log.
+    ///
+    /// `blended_signal_bps`: the float signal × 10 000 as i32 (e.g. 0.35 → 3500).
+    pub fn record_decision(
+        env: Env,
+        owner: Address,
+        asset: Symbol,
+        direction: u32,
+        proposed_size_stroops: i128,
+        final_size_stroops: i128,
+        approved: bool,
+        veto_code: u32,
+        blended_signal_bps: i32,
+    ) {
+        owner.require_auth();
+
+        let decision = Decision {
+            asset,
+            direction,
+            proposed_size_stroops,
+            final_size_stroops,
+            approved,
+            veto_code,
+            blended_signal_bps,
+            recorded_at: env.ledger().timestamp(),
+            ledger_seq: env.ledger().sequence(),
+        };
+
+        audit::append_decision(&env, &owner, decision);
+    }
+
+    /// Return the stored decision log for `owner` (up to the last 50 entries,
+    /// oldest first). Returns an empty vec if no decisions have been recorded yet.
+    pub fn get_decisions(env: Env, owner: Address) -> Vec<Decision> {
+        audit::read_decisions(&env, &owner)
     }
 
     // ── Kill switch & circuit breaker ─────────────────────────────────────────
