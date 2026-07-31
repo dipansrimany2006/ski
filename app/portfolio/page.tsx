@@ -47,9 +47,26 @@ interface LiveData {
 
 interface AgentWallet {
   address: string;
-  balanceEth: number;
-  ethPriceUsd: number;
+  balanceXLM: number;
+  xlmPriceUsd: number;
   explorerUrl: string;
+}
+
+interface FreighterBalance {
+  asset: string;
+  issuer: string | null;
+  balance: number;
+  valueUsd?: number;
+  priceUsd?: number;
+  change24h?: number;
+  logo?: string;
+}
+
+interface FreighterWallet {
+  address: string;
+  balances: FreighterBalance[];
+  explorerUrl: string;
+  xlmPriceUsd: number;
 }
 
 type Tab = "chart" | "allocation" | "statistics";
@@ -144,8 +161,9 @@ export default function PortfolioPage() {
   const [authed,       setAuthed]       = useState(true);
   const [tab,          setTab]          = useState<Tab>("allocation");
   const [actionMenu,   setActionMenu]   = useState<string | null>(null);
+  const [portfolioErr, setPortfolioErr] = useState("");
 
-  // Agent wallet (Sepolia)
+  // Agent wallet (Stellar Testnet)
   const [agentWallet,   setAgentWallet]   = useState<AgentWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
 
@@ -155,6 +173,11 @@ export default function PortfolioPage() {
   const [mandateData,    setMandateData]    = useState<{ contractId: string; explorerUrl: string; action?: string } | null>(null);
   const [mandateError,   setMandateError]   = useState("");
 
+  // Freighter wallet
+  const [freighterWallet,   setFreighterWallet]   = useState<FreighterWallet | null>(null);
+  const [freighterLoading,  setFreighterLoading]  = useState(false);
+  const [freighterAddr,     setFreighterAddr]      = useState<string | null>(null);
+
   // Deposit modal
   const [depositOpen,   setDepositOpen]   = useState(false);
   type DepositStep = "form" | "creating" | "pending" | "confirming" | "success" | "error";
@@ -162,13 +185,20 @@ export default function PortfolioPage() {
   const [depositAmount, setDepositAmount] = useState("");
   const [depositTxHash, setDepositTxHash] = useState("");
   const [depositError,  setDepositError]  = useState("");
-  const [depositedEth,  setDepositedEth]  = useState(0);
+  const [depositedXlm,  setDepositedXlm]  = useState(0);
 
   useEffect(() => {
     fetch("/api/paper/portfolio")
-      .then(r => { if (r.status === 401) { setAuthed(false); return null; } return r.json(); })
-      .then(raw => {
-        const d = raw as Portfolio | null;
+      .then(async r => {
+        if (r.status === 401) { setAuthed(false); return null; }
+        const body = await r.json().catch(() => null) as (Portfolio & { error?: string }) | null;
+        if (!r.ok) {
+          setPortfolioErr((body as { error?: string } | null)?.error ?? `Server error ${r.status}`);
+          return null;
+        }
+        return body;
+      })
+      .then(d => {
         if (!d) return;
         setPortfolio(d);
         if (d.positions.length > 0) {
@@ -189,7 +219,7 @@ export default function PortfolioPage() {
           });
         }
       })
-      .catch(() => {})
+      .catch(err => setPortfolioErr(String(err)))
       .finally(() => setLoading(false));
 
     // Load agent wallet
@@ -198,9 +228,27 @@ export default function PortfolioPage() {
     // Load on-chain mandate status
     loadMandate();
 
+    // Load Freighter wallet (address stored in localStorage by wallet-button)
+    const saved = localStorage.getItem("ski_freighter_address");
+    setFreighterAddr(saved);
+    if (saved) loadFreighterWallet(saved);
+
+    // Keep in sync when user connects/disconnects from the nav
+    function onStorage(e: StorageEvent) {
+      if (e.key !== "ski_freighter_address") return;
+      const addr = e.newValue;
+      setFreighterAddr(addr);
+      if (addr) loadFreighterWallet(addr);
+      else setFreighterWallet(null);
+    }
+    window.addEventListener("storage", onStorage);
+
     const handler = () => setActionMenu(null);
     document.addEventListener("click", handler);
-    return () => document.removeEventListener("click", handler);
+    return () => {
+      document.removeEventListener("click", handler);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   async function loadAgentWallet() {
@@ -208,25 +256,25 @@ export default function PortfolioPage() {
     try {
       const res = await fetch("/api/cfo/wallet");
       if (!res.ok) return;
-      const data = await res.json() as { wallet?: { address: string; explorerUrl?: string } | null };
+      const data = await res.json() as { wallet?: { address: string; balanceXLM?: number; explorerUrl?: string } | null };
       if (!data.wallet?.address) return;
 
       const address = data.wallet.address;
 
-      // Fetch Sepolia ETH balance
-      const [balRes, ethRes] = await Promise.all([
-        fetch(`/api/portfolio/eth-balance?address=${address}`).then(r => r.ok ? r.json() : null),
-        fetch("/api/asset/ETH-USD").then(r => r.ok ? r.json() : null),
+      // Fetch live XLM price alongside the Stellar testnet balance.
+      const [balRes, xlmRes] = await Promise.all([
+        fetch(`/api/portfolio/stellar-balance?address=${address}`).then(r => r.ok ? r.json() : null),
+        fetch("/api/asset/XLM-USD").then(r => r.ok ? r.json() : null),
       ]);
 
-      const balanceEth  = (balRes as { balanceEth?: number } | null)?.balanceEth ?? 0;
-      const ethPriceUsd = (ethRes as { asset?: { priceUsd: number } } | null)?.asset?.priceUsd ?? 0;
+      const balanceXLM  = (balRes as { xlmBalance?: number } | null)?.xlmBalance ?? 0;
+      const xlmPriceUsd = (xlmRes as { asset?: { priceUsd: number } } | null)?.asset?.priceUsd ?? 0;
 
       setAgentWallet({
         address,
-        balanceEth,
-        ethPriceUsd,
-        explorerUrl: `https://sepolia.etherscan.io/address/${address}`,
+        balanceXLM,
+        xlmPriceUsd,
+        explorerUrl: `https://stellar.expert/explorer/testnet/account/${address}`,
       });
     } catch {
       // wallet not available
@@ -244,6 +292,46 @@ export default function PortfolioPage() {
       setMandateStatus(data.mandate ? "registered" : "none");
     } catch {
       setMandateStatus("none");
+    }
+  }
+
+  async function loadFreighterWallet(address: string) {
+    setFreighterLoading(true);
+    try {
+      const balRes = await fetch(`/api/portfolio/stellar-balance?address=${encodeURIComponent(address)}`).then(r => r.ok ? r.json() : null);
+      const rawBalances = (balRes as { balances?: { asset: string; issuer: string | null; balance: number }[] } | null)?.balances ?? [];
+
+      const balances: FreighterBalance[] = await Promise.all(
+        rawBalances.map(async b => {
+          try {
+            const slug = `${b.asset}-USD`;
+            const assetRes = await fetch(`/api/asset/${slug}`).then(r => r.ok ? r.json() : null);
+            const assetData = (assetRes as { asset?: { priceUsd: number; change24h: number; logo: string } } | null)?.asset;
+            return {
+              ...b,
+              priceUsd: assetData?.priceUsd,
+              change24h: assetData?.change24h,
+              logo: assetData?.logo,
+              valueUsd: assetData?.priceUsd ? b.balance * assetData.priceUsd : undefined,
+            };
+          } catch {
+            return { ...b };
+          }
+        })
+      );
+
+      const xlmPriceUsd = balances.find(b => b.asset === "XLM")?.priceUsd ?? 0;
+
+      setFreighterWallet({
+        address,
+        balances,
+        explorerUrl: `https://stellar.expert/explorer/testnet/account/${address}`,
+        xlmPriceUsd,
+      });
+    } catch {
+      // wallet data unavailable — don't crash the page
+    } finally {
+      setFreighterLoading(false);
     }
   }
 
@@ -271,13 +359,6 @@ export default function PortfolioPage() {
   }
 
   async function handleDeposit() {
-    const eth = parseFloat(depositAmount);
-    if (!eth || eth <= 0) { setDepositError("Enter a valid amount."); return; }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const provider = (window as any).ethereum;
-    if (!provider) { setDepositError("MetaMask not found. Install it to deposit."); return; }
-
     setDepositError("");
     let toAddress = agentWallet?.address ?? null;
 
@@ -287,74 +368,17 @@ export default function PortfolioPage() {
       if (!toAddress) { setDepositError("Could not create wallet."); setDepositStep("error"); return; }
     }
 
+    setDepositStep("pending");
     try {
-      // Request accounts
-      const accounts: string[] = await provider.request({ method: "eth_requestAccounts" });
-      if (!accounts.length) throw new Error("No accounts connected.");
-
-      // Switch to Sepolia (chainId 11155111 = 0xaa36a7)
-      const chainId: string = await provider.request({ method: "eth_chainId" });
-      if (chainId !== "0xaa36a7") {
-        try {
-          await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0xaa36a7" }] });
-        } catch {
-          // Add network if not found
-          await provider.request({
-            method: "wallet_addEthereumChain",
-            params: [{
-              chainId: "0xaa36a7",
-              chainName: "Sepolia",
-              nativeCurrency: { name: "Sepolia ETH", symbol: "ETH", decimals: 18 },
-              rpcUrls: ["https://rpc.sepolia.org"],
-              blockExplorerUrls: ["https://sepolia.etherscan.io"],
-            }],
-          });
-        }
-      }
-
-      setDepositStep("pending");
-
-      // Build value in hex wei
-      const weiHex = "0x" + Math.floor(eth * 1e18).toString(16);
-      const txHash: string = await provider.request({
-        method: "eth_sendTransaction",
-        params: [{ from: accounts[0], to: toAddress, value: weiHex }],
-      });
-
-      setDepositTxHash(txHash);
-      setDepositStep("confirming");
-
-      // Poll for receipt (Sepolia public RPC)
-      const RPC = "https://ethereum-sepolia-rpc.publicnode.com";
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 3000));
-        const res = await fetch(RPC, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
-        });
-        const data = await res.json() as { result?: { status: string } | null };
-        if (data.result) {
-          if (data.result.status === "0x1") {
-            setDepositedEth(eth);
-            setDepositStep("success");
-            // Refresh wallet balance after success
-            setTimeout(() => loadAgentWallet(), 2000);
-          } else {
-            throw new Error("Transaction failed on-chain.");
-          }
-          return;
-        }
-      }
-      throw new Error("Transaction timed out.");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Transaction failed.";
-      if (msg.includes("User rejected") || msg.includes("user rejected")) {
-        setDepositStep("form");
-      } else {
-        setDepositError(msg);
-        setDepositStep("error");
-      }
+      const res  = await fetch("/api/cfo/fund", { method: "POST" });
+      const data = await res.json() as { ok?: boolean; balanceXLM?: number; message?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Friendbot funding failed.");
+      setDepositedXlm(data.balanceXLM ?? 10_000);
+      setDepositStep("success");
+      setTimeout(() => loadAgentWallet(), 2000);
+    } catch (err) {
+      setDepositError(err instanceof Error ? err.message : "Funding failed.");
+      setDepositStep("error");
     }
   }
 
@@ -371,53 +395,35 @@ export default function PortfolioPage() {
   const positions = portfolio?.positions ?? [];
   const trades    = portfolio?.trades    ?? [];
 
-  const openValue = useMemo(() =>
-    positions.reduce((s, p) => s + p.quantity * (liveData.get(p.display_symbol)?.price ?? p.avg_buy_price), 0),
-  [positions, liveData]);
+  // Freighter wallet totals (primary balance source)
+  const freighterTotalUsd = useMemo(() =>
+    (freighterWallet?.balances ?? []).reduce((s, b) => s + (b.valueUsd ?? 0), 0),
+  [freighterWallet]);
 
-  const ethValueUsd = (agentWallet?.balanceEth ?? 0) * (agentWallet?.ethPriceUsd ?? 0);
-  const totalValue  = (portfolio?.balance ?? 0) + openValue + ethValueUsd;
-  const totalReturn = totalValue - 10_000;
-  const returnPct   = (totalReturn / 10_000) * 100;
-
-  // 24H portfolio change
-  const change24hUsd = useMemo(() =>
-    positions.reduce((s, p) => {
-      const ld = liveData.get(p.display_symbol);
-      if (!ld) return s;
-      return s + p.quantity * ld.price * (ld.change24h / 100);
+  const freighter24hChangeUsd = useMemo(() =>
+    (freighterWallet?.balances ?? []).reduce((s, b) => {
+      if (b.valueUsd === undefined || b.change24h === undefined) return s;
+      return s + b.valueUsd * (b.change24h / 100);
     }, 0),
-  [positions, liveData]);
-  const change24hPct = totalValue > 0 ? (change24hUsd / totalValue) * 100 : 0;
+  [freighterWallet]);
 
-  // Best / worst performer
-  const performers = useMemo(() =>
-    positions.map(p => {
-      const live = liveData.get(p.display_symbol)?.price ?? p.avg_buy_price;
-      const pnl  = p.quantity * (live - p.avg_buy_price);
-      const pct  = p.avg_buy_price > 0 ? ((live - p.avg_buy_price) / p.avg_buy_price) * 100 : 0;
-      return { symbol: p.symbol, pnl, pct };
-    }),
-  [positions, liveData]);
+  const freighter24hChangePct = freighterTotalUsd > 0 ? (freighter24hChangeUsd / freighterTotalUsd) * 100 : 0;
 
-  const best  = performers.length ? performers.reduce((a, b) => b.pct > a.pct ? b : a) : null;
-  const worst = performers.length ? performers.reduce((a, b) => b.pct < a.pct ? b : a) : null;
-
-  // Allocation
+  // Allocation from freighter balances
   const allocItems = useMemo(() => {
-    if (!portfolio || totalValue === 0) return [];
-    const items = [
-      ...positions.map((p, i) => ({
-        label: p.symbol,
-        pct: ((p.quantity * (liveData.get(p.display_symbol)?.price ?? p.avg_buy_price)) / totalValue) * 100,
+    if (!freighterWallet || freighterTotalUsd === 0) return [];
+    return freighterWallet.balances
+      .filter(b => (b.valueUsd ?? 0) > 0)
+      .map((b, i) => ({
+        label: b.asset,
+        pct: ((b.valueUsd ?? 0) / freighterTotalUsd) * 100,
         color: PALETTE[i % PALETTE.length],
-      })),
-      { label: "Cash", pct: ((portfolio.balance) / totalValue) * 100, color: "#4b5563" },
-    ];
-    return items.filter(i => i.pct > 0.1).sort((a, b) => b.pct - a.pct);
-  }, [portfolio, positions, liveData, totalValue]);
+      }))
+      .filter(i => i.pct > 0.1)
+      .sort((a, b) => b.pct - a.pct);
+  }, [freighterWallet, freighterTotalUsd]);
 
-  const chartData = useMemo(() => buildChartData(trades, portfolio?.balance ?? 10_000), [trades, portfolio]);
+  const chartData = useMemo(() => buildChartData(trades, portfolio?.balance ?? 0), [trades, portfolio]);
   const chartMin  = useMemo(() => Math.min(...chartData.map(d => d.value)) * 0.998, [chartData]);
   const chartMax  = useMemo(() => Math.max(...chartData.map(d => d.value)) * 1.002, [chartData]);
 
@@ -435,8 +441,7 @@ export default function PortfolioPage() {
     );
   }
 
-  const pos24Up = change24hUsd >= 0;
-  const totalUp = totalReturn >= 0;
+  const pos24Up = freighter24hChangeUsd >= 0;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -452,6 +457,14 @@ export default function PortfolioPage() {
           </p>
         </div>
 
+        {/* ── Error banner ────────────────────────────────────────────────── */}
+        {portfolioErr && (
+          <div className="mb-6 rounded-2xl border border-rose-500/30 bg-rose-500/5 px-5 py-4">
+            <p className="text-xs font-semibold text-rose-400 uppercase tracking-wide mb-1">Portfolio fetch error</p>
+            <p className="text-xs text-rose-300/70 font-mono break-all">{portfolioErr}</p>
+          </div>
+        )}
+
         {/* ── Balance row ─────────────────────────────────────────────────── */}
         <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
           <div>
@@ -459,15 +472,22 @@ export default function PortfolioPage() {
               Current balance
               <span className="text-white/20 text-[10px] border border-white/15 rounded-full w-4 h-4 flex items-center justify-center leading-none">i</span>
             </p>
-            {loading ? (
+            {freighterLoading ? (
               <div className="h-12 w-56 animate-pulse rounded-xl bg-white/5" />
+            ) : !freighterAddr ? (
+              <div>
+                <p className="text-2xl font-semibold text-white/30">—</p>
+                <p className="text-sm text-white/30 mt-1">Connect your Freighter wallet to see your balance</p>
+              </div>
             ) : (
               <>
-                <p className="text-5xl font-bold tracking-tight">{fmt(totalValue)}</p>
-                <p className={`text-sm mt-1.5 font-semibold flex items-center gap-2 ${pos24Up ? "text-emerald-400" : "text-rose-400"}`}>
-                  {pos24Up ? "+" : ""}{fmt(change24hUsd)} ({pos24Up ? "+" : ""}{change24hPct.toFixed(2)}%)
-                  <span className="text-xs bg-white/8 text-white/40 rounded-md px-1.5 py-0.5 font-normal">24H</span>
-                </p>
+                <p className="text-5xl font-bold tracking-tight">{fmt(freighterTotalUsd)}</p>
+                {freighterWallet && (
+                  <p className={`text-sm mt-1.5 font-semibold flex items-center gap-2 ${pos24Up ? "text-emerald-400" : "text-rose-400"}`}>
+                    {pos24Up ? "+" : ""}{fmt(freighter24hChangeUsd)} ({pos24Up ? "+" : ""}{freighter24hChangePct.toFixed(2)}%)
+                    <span className="text-xs bg-white/8 text-white/40 rounded-md px-1.5 py-0.5 font-normal">24H</span>
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -503,25 +523,17 @@ export default function PortfolioPage() {
           </div>
         </div>
 
-        {/* ── Stats strip ─────────────────────────────────────────────────── */}
-        {!loading && (
+        {/* ── Wallet summary strip ────────────────────────────────────────── */}
+        {freighterWallet && freighterWallet.balances.length > 0 && (
           <div className="flex items-center gap-10 mb-8 flex-wrap">
-            <StatChip
-              label="All time profit"
-              pct={returnPct}
-              usd={totalReturn}
-              positive={totalUp}
-            />
-            {best && (
-              <div className="flex items-center gap-2">
-                <span className="text-lg">💎</span>
-                <StatChip label="Best performer" pct={best.pct} usd={best.pnl} positive={best.pct >= 0} />
-              </div>
-            )}
-            {worst && worst.symbol !== best?.symbol && (
-              <div className="flex items-center gap-2">
-                <span className="text-lg">📉</span>
-                <StatChip label="Worst performer" pct={worst.pct} usd={worst.pnl} positive={worst.pct >= 0} />
+            <div>
+              <p className="text-xs text-white/40 mb-0.5">Assets</p>
+              <p className="text-sm font-semibold text-white">{freighterWallet.balances.length} token{freighterWallet.balances.length !== 1 ? "s" : ""}</p>
+            </div>
+            {freighterWallet.balances.some(b => b.valueUsd === undefined) && (
+              <div>
+                <p className="text-xs text-white/40 mb-0.5">Unpriced assets</p>
+                <p className="text-sm font-semibold text-white/50">{freighterWallet.balances.filter(b => b.valueUsd === undefined).length} token{freighterWallet.balances.filter(b => b.valueUsd === undefined).length !== 1 ? "s" : ""}</p>
               </div>
             )}
           </div>
@@ -585,6 +597,48 @@ export default function PortfolioPage() {
           </div>
         </div>
 
+        {/* ── Freighter wallet status bar ──────────────────────────────────── */}
+        <div className="mb-6 rounded-2xl border border-white/8 bg-white/[0.02] px-6 py-4 flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+              freighterAddr
+                ? "bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.6)]"
+                : "bg-white/20"
+            }`} />
+            <div>
+              <p className="text-sm font-semibold text-white">Freighter Wallet</p>
+              <p className="text-xs text-white/35 font-mono truncate max-w-xs">
+                {freighterAddr
+                  ? `${freighterAddr.slice(0, 8)}…${freighterAddr.slice(-6)}`
+                  : "Not connected — use the wallet button in the top nav"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {freighterWallet && (
+              <a
+                href={freighterWallet.explorerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-white/40 hover:text-white/70 transition-colors underline underline-offset-2"
+              >
+                View on Explorer ↗
+              </a>
+            )}
+            {freighterAddr && (
+              <button
+                onClick={() => loadFreighterWallet(freighterAddr)}
+                className="text-xs text-white/40 hover:text-white/70 transition-colors"
+                title="Refresh balances"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* ── Tabs ─────────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-2 mb-6">
           {(["chart", "allocation", "statistics"] as Tab[]).map(t => (
@@ -611,15 +665,15 @@ export default function PortfolioPage() {
               <AreaChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="portGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={totalUp ? "#10b981" : "#f43f5e"} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={totalUp ? "#10b981" : "#f43f5e"} stopOpacity={0} />
+                    <stop offset="5%"  stopColor={pos24Up ? "#10b981" : "#f43f5e"} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={pos24Up ? "#10b981" : "#f43f5e"} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="label" hide />
                 <YAxis domain={[chartMin, chartMax]} hide />
                 <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="value"
-                  stroke={totalUp ? "#10b981" : "#f43f5e"} strokeWidth={2}
+                  stroke={pos24Up ? "#10b981" : "#f43f5e"} strokeWidth={2}
                   fill="url(#portGrad)" dot={false} activeDot={{ r: 4 }} />
               </AreaChart>
             </ResponsiveContainer>
@@ -676,126 +730,83 @@ export default function PortfolioPage() {
         {/* ── Your holdings ────────────────────────────────────────────────── */}
         <h2 className="text-2xl font-bold mb-5">Your holdings</h2>
 
-        {loading ? (
+        {freighterLoading ? (
           <div className="flex flex-col gap-3">
             {[1,2,3].map(i => <div key={i} className="h-16 animate-pulse rounded-2xl bg-white/5" />)}
           </div>
-        ) : positions.length === 0 ? (
+        ) : !freighterAddr ? (
           <div className="rounded-2xl border border-white/8 py-16 text-center">
-            <p className="text-white/30 mb-3">No holdings yet</p>
-            <Link href="/cfo" className="text-sm text-emerald-400 hover:text-emerald-300 transition-colors">
-              Enable CFO to start trading →
-            </Link>
+            <p className="text-white/30 mb-3">Connect your Freighter wallet to see your holdings</p>
+            <p className="text-xs text-white/20">Use the wallet button in the top navigation to connect</p>
+          </div>
+        ) : !freighterWallet || freighterWallet.balances.length === 0 ? (
+          <div className="rounded-2xl border border-white/8 py-16 text-center">
+            <p className="text-white/30 mb-3">No assets found in your Freighter wallet</p>
+            <p className="text-xs text-white/20">Fund via Friendbot or receive XLM to activate your account</p>
           </div>
         ) : (
           <div className="rounded-2xl border border-white/8 overflow-hidden">
             {/* Table header */}
-            <div className="grid grid-cols-[2fr_1fr_80px_1fr_1fr_1fr_90px] gap-4 px-6 py-3.5 text-xs font-medium text-white/30 uppercase tracking-widest border-b border-white/8 bg-white/[0.015]">
-              <span>Assets</span>
+            <div className="grid grid-cols-[2fr_1fr_80px_1fr_1fr] gap-4 px-6 py-3.5 text-xs font-medium text-white/30 uppercase tracking-widest border-b border-white/8 bg-white/[0.015]">
+              <span>Asset</span>
               <span className="text-right">Price</span>
               <span className="text-right">24H</span>
               <span className="text-right">Balance</span>
-              <span className="text-right">Avg buy</span>
-              <span className="text-right">Profit / Loss</span>
-              <span className="text-right">Actions</span>
+              <span className="text-right">Value (USD)</span>
             </div>
 
-            {positions.map((pos, idx) => {
-              const ld      = liveData.get(pos.display_symbol);
-              const live    = ld?.price   ?? pos.avg_buy_price;
-              const chg24   = ld?.change24h ?? 0;
-              const pnl     = pos.quantity * (live - pos.avg_buy_price);
-              const pnlPct  = pos.avg_buy_price > 0 ? ((live - pos.avg_buy_price) / pos.avg_buy_price) * 100 : 0;
-              const up      = pnl >= 0;
-              const chgUp   = chg24 >= 0;
-              const slug    = pos.display_symbol.replace("/", "-");
-              const color   = assetColor(pos.symbol, idx);
-
+            {freighterWallet.balances.map((b, idx) => {
+              const color  = PALETTE[idx % PALETTE.length];
+              const chg24  = b.change24h ?? 0;
+              const chgUp  = chg24 >= 0;
               return (
                 <div
-                  key={pos.id}
-                  onClick={() => router.push(`/explore/${slug}`)}
-                  className="grid grid-cols-[2fr_1fr_80px_1fr_1fr_1fr_90px] gap-4 px-6 py-4 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors items-center cursor-pointer group"
+                  key={`${b.asset}-${b.issuer ?? "native"}`}
+                  className="grid grid-cols-[2fr_1fr_80px_1fr_1fr] gap-4 px-6 py-4 border-b border-white/5 last:border-0 hover:bg-white/[0.03] transition-colors items-center"
                 >
                   {/* Asset */}
                   <div className="flex items-center gap-3 min-w-0">
-                    <AssetLogo symbol={pos.symbol} logo={ld?.logo ?? ""} color={color} />
+                    <AssetLogo symbol={b.asset} logo={b.logo ?? ""} color={color} />
                     <div className="min-w-0">
-                      <span className="text-sm font-semibold group-hover:text-white transition-colors">{pos.name} </span>
-                      <span className="text-xs text-white/30 uppercase">{pos.symbol}</span>
+                      <p className="text-sm font-semibold">{b.asset}</p>
+                      {b.issuer && (
+                        <p className="text-[10px] text-white/25 font-mono truncate">{b.issuer.slice(0, 8)}…</p>
+                      )}
                     </div>
                   </div>
 
                   {/* Price */}
-                  <p className="text-sm text-right font-mono">{fmt(live)}</p>
-
-                  {/* 24H */}
-                  <p className={`text-sm text-right font-semibold ${chgUp ? "text-emerald-400" : "text-rose-400"}`}>
-                    {chgUp ? "▲" : "▼"} {Math.abs(chg24).toFixed(2)}%
+                  <p className="text-sm text-right font-mono">
+                    {b.priceUsd !== undefined ? fmt(b.priceUsd) : <span className="text-white/25">—</span>}
                   </p>
 
-                  {/* Balance (qty) */}
-                  <p className="text-sm text-right font-mono text-white/70">{fmtQty(pos.quantity)}</p>
+                  {/* 24H */}
+                  <p className={`text-sm text-right font-semibold ${b.change24h === undefined ? "text-white/25" : chgUp ? "text-emerald-400" : "text-rose-400"}`}>
+                    {b.change24h === undefined ? "—" : `${chgUp ? "▲" : "▼"} ${Math.abs(chg24).toFixed(2)}%`}
+                  </p>
 
-                  {/* Avg buy */}
-                  <p className="text-sm text-right text-white/50 font-mono">{fmt(pos.avg_buy_price)}</p>
+                  {/* Balance */}
+                  <p className="text-sm text-right font-mono text-white/70">{fmtQty(b.balance)}</p>
 
-                  {/* P&L */}
-                  <div className="text-right">
-                    <p className={`text-sm font-semibold ${up ? "text-emerald-400" : "text-rose-400"}`}>
-                      {up ? "+" : ""}{fmt(pnl)}
-                    </p>
-                    <p className={`text-xs mt-0.5 ${up ? "text-emerald-400/60" : "text-rose-400/60"}`}>
-                      {up ? "+" : ""}{pnlPct.toFixed(2)}%
-                    </p>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
-                    <Link
-                      href={`/explore/${slug}`}
-                      className="w-7 h-7 rounded-full border border-white/15 flex items-center justify-center text-white/50 hover:text-white hover:border-white/30 transition-all"
-                      title="Trade"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 4v16m8-8H4" />
-                      </svg>
-                    </Link>
-                    <div className="relative">
-                      <button
-                        onClick={() => setActionMenu(m => m === pos.id ? null : pos.id)}
-                        className="w-7 h-7 rounded-full border border-white/15 flex items-center justify-center text-white/50 hover:text-white hover:border-white/30 transition-all"
-                        title="More"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                          <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
-                        </svg>
-                      </button>
-                      {actionMenu === pos.id && (
-                        <div className="absolute right-0 top-9 z-50 w-40 rounded-xl border border-white/10 bg-[#111] shadow-xl overflow-hidden">
-                          <Link
-                            href={`/explore/${slug}`}
-                            onClick={() => setActionMenu(null)}
-                            className="flex items-center gap-2 px-4 py-2.5 text-sm text-white/70 hover:bg-white/5 hover:text-white transition-colors"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                            View asset
-                          </Link>
-                          <Link
-                            href="/cfo"
-                            onClick={() => setActionMenu(null)}
-                            className="flex items-center gap-2 px-4 py-2.5 text-sm text-rose-400 hover:bg-white/5 transition-colors"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-                            Exit via CFO
-                          </Link>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  {/* Value */}
+                  <p className="text-sm text-right font-mono">
+                    {b.valueUsd !== undefined ? fmt(b.valueUsd) : <span className="text-white/25">—</span>}
+                  </p>
                 </div>
               );
             })}
+
+            {/* Total row */}
+            <div className="grid grid-cols-[2fr_1fr_80px_1fr_1fr] gap-4 px-6 py-3 bg-white/[0.015] border-t border-white/8">
+              <p className="text-xs text-white/30 uppercase tracking-widest">Total</p>
+              <p /><p /><p />
+              <p className="text-sm font-semibold text-right">
+                {fmt(freighterTotalUsd)}
+                {freighterWallet.balances.some(b => b.valueUsd === undefined) && (
+                  <span className="text-white/30 text-xs ml-1">+</span>
+                )}
+              </p>
+            </div>
           </div>
         )}
 
@@ -845,12 +856,12 @@ export default function PortfolioPage() {
 
       </main>
 
-      {/* ── Deposit modal ──────────────────────────────────────────────────── */}
+      {/* ── Fund wallet modal ─────────────────────────────────────────────── */}
       {depositOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
-          onClick={e => { if (e.target === e.currentTarget && depositStep !== "pending" && depositStep !== "confirming") setDepositOpen(false); }}
+          onClick={e => { if (e.target === e.currentTarget && depositStep !== "pending" && depositStep !== "creating") setDepositOpen(false); }}
         >
           <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0d0d0d] shadow-2xl overflow-hidden"
             style={{ animation: "modalIn 0.2s cubic-bezier(0.34,1.56,0.64,1)" }}>
@@ -858,37 +869,29 @@ export default function PortfolioPage() {
             {/* ── Success screen ── */}
             {depositStep === "success" && (
               <div className="flex flex-col items-center text-center px-8 py-12 gap-6">
-                {/* Animated success ring */}
                 <div className="relative flex items-center justify-center w-28 h-28">
                   <div className="absolute inset-0 rounded-full bg-emerald-500/10 animate-ping" style={{ animationDuration: "1.5s", animationIterationCount: 1 }} />
                   <div className="absolute inset-2 rounded-full bg-emerald-500/15" />
                   <div className="relative w-20 h-20 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/40"
                     style={{ animation: "successPop 0.4s cubic-bezier(0.34,1.56,0.64,1)" }}>
                     <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"
-                        style={{ strokeDasharray: 30, strokeDashoffset: 0, animation: "drawCheck 0.4s 0.3s ease forwards" }} />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
                 </div>
-
                 <div style={{ animation: "fadeUp 0.4s 0.3s ease both" }}>
-                  <h3 className="text-2xl font-bold mb-2">Deposit confirmed!</h3>
+                  <h3 className="text-2xl font-bold mb-2">Wallet funded!</h3>
                   <p className="text-white/50 text-sm">
-                    <span className="text-white font-semibold">{depositedEth} ETH</span> has been sent to your agent wallet on Sepolia. Your portfolio balance will update shortly.
+                    Your agent wallet received <span className="text-white font-semibold">{depositedXlm.toLocaleString()} XLM</span> on Stellar testnet. Balance will refresh shortly.
                   </p>
                 </div>
-
-                {depositTxHash && (
-                  <a
-                    href={`https://sepolia.etherscan.io/tx/${depositTxHash}`}
-                    target="_blank" rel="noopener noreferrer"
+                {agentWallet?.explorerUrl && (
+                  <a href={agentWallet.explorerUrl} target="_blank" rel="noopener noreferrer"
                     className="text-xs text-emerald-400 hover:text-emerald-300 underline"
-                    style={{ animation: "fadeUp 0.4s 0.5s ease both", opacity: 0 }}
-                  >
-                    View on Sepolia Etherscan ↗
+                    style={{ animation: "fadeUp 0.4s 0.5s ease both", opacity: 0 }}>
+                    View on Stellar Expert ↗
                   </a>
                 )}
-
                 <button
                   onClick={() => setDepositOpen(false)}
                   className="w-full rounded-2xl bg-white text-black py-3.5 text-sm font-semibold hover:bg-white/90 transition-all mt-2"
@@ -904,40 +907,30 @@ export default function PortfolioPage() {
               <div className="px-6 py-8 flex flex-col items-center text-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-2xl">✕</div>
                 <div>
-                  <h3 className="text-lg font-bold mb-1">Transaction failed</h3>
+                  <h3 className="text-lg font-bold mb-1">Funding failed</h3>
                   <p className="text-sm text-white/40">{depositError}</p>
                 </div>
                 <button onClick={() => setDepositStep("form")} className="w-full rounded-2xl border border-white/10 py-3 text-sm text-white/70 hover:bg-white/5 transition-all">Try again</button>
               </div>
             )}
 
-            {/* ── Pending / Confirming screens ── */}
-            {(depositStep === "pending" || depositStep === "confirming" || depositStep === "creating") && (
+            {/* ── Loading screens ── */}
+            {(depositStep === "pending" || depositStep === "creating") && (
               <div className="px-6 py-12 flex flex-col items-center text-center gap-5">
                 <div className="relative w-16 h-16">
                   <div className="absolute inset-0 rounded-full border-2 border-emerald-500/20" />
                   <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-emerald-400 animate-spin" />
                   <div className="absolute inset-3 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400 text-lg">
-                    {depositStep === "creating" ? "🔑" : depositStep === "pending" ? "⏳" : "⛓️"}
+                    {depositStep === "creating" ? "🔑" : "⚡"}
                   </div>
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold mb-1">
-                    {depositStep === "creating"    && "Creating agent wallet…"}
-                    {depositStep === "pending"     && "Waiting for MetaMask…"}
-                    {depositStep === "confirming"  && "Confirming on Sepolia…"}
+                    {depositStep === "creating" ? "Creating agent wallet…" : "Requesting XLM from Friendbot…"}
                   </h3>
                   <p className="text-sm text-white/35">
-                    {depositStep === "creating"   && "Generating your secure agent wallet"}
-                    {depositStep === "pending"    && "Approve the transaction in MetaMask"}
-                    {depositStep === "confirming" && "Your transaction is being mined"}
+                    {depositStep === "creating" ? "Generating your secure Stellar keypair" : "Stellar testnet · usually takes 1–3 seconds"}
                   </p>
-                  {depositTxHash && (
-                    <a href={`https://sepolia.etherscan.io/tx/${depositTxHash}`} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-emerald-400 hover:text-emerald-300 underline mt-2 inline-block">
-                      View on Etherscan ↗
-                    </a>
-                  )}
                 </div>
               </div>
             )}
@@ -945,91 +938,77 @@ export default function PortfolioPage() {
             {/* ── Form screen ── */}
             {depositStep === "form" && (
               <>
-                {/* Header */}
                 <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/6">
                   <div>
-                    <h3 className="text-lg font-bold">Deposit ETH</h3>
-                    <p className="text-xs text-white/35 mt-0.5">Sepolia testnet · funds your agent wallet</p>
+                    <h3 className="text-lg font-bold">Fund Agent Wallet</h3>
+                    <p className="text-xs text-white/35 mt-0.5">Stellar testnet · XLM only</p>
                   </div>
                   <button onClick={() => setDepositOpen(false)} className="w-8 h-8 rounded-full border border-white/10 flex items-center justify-center text-white/40 hover:text-white hover:border-white/25 transition-all text-sm">✕</button>
                 </div>
 
-                <div className="px-6 py-5 space-y-5">
-                  {/* To address */}
-                  {agentWallet && (
+                <div className="px-6 py-5 space-y-4">
+                  {/* Agent wallet address */}
+                  {agentWallet ? (
                     <div className="rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3">
-                      <p className="text-[10px] text-white/30 uppercase tracking-widest mb-1">To · Agent Wallet</p>
+                      <p className="text-[10px] text-white/30 uppercase tracking-widest mb-1.5">Agent Wallet Address</p>
                       <div className="flex items-center gap-2">
-                        <p className="font-mono text-xs text-white/60 flex-1 truncate">{agentWallet.address}</p>
-                        <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Sepolia</span>
+                        <p className="font-mono text-xs text-white/70 flex-1 break-all leading-relaxed">{agentWallet.address}</p>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <button
+                          onClick={() => navigator.clipboard.writeText(agentWallet.address)}
+                          className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-white/8 text-white/50 hover:text-white hover:bg-white/12 transition-all"
+                        >
+                          Copy address
+                        </button>
+                        <a href={agentWallet.explorerUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-white/8 text-white/50 hover:text-white hover:bg-white/12 transition-all">
+                          View on Explorer ↗
+                        </a>
+                        <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Testnet</span>
                       </div>
                     </div>
-                  )}
-                  {!agentWallet && (
+                  ) : (
                     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-xs text-emerald-300">
-                      A new agent wallet will be created automatically on deposit.
+                      A new agent wallet will be created automatically when you fund.
                     </div>
                   )}
 
-                  {/* Amount input */}
-                  <div>
-                    <label className="text-xs text-white/40 mb-2 block">Amount</label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.001"
-                        value={depositAmount}
-                        onChange={e => setDepositAmount(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-2xl font-bold text-white placeholder:text-white/15 focus:outline-none focus:border-emerald-500/50 pr-16"
-                      />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-white/40">ETH</span>
+                  {/* Option 1: Friendbot */}
+                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                    <div className="flex items-start gap-3 mb-3">
+                      <span className="text-2xl leading-none">⚡</span>
+                      <div>
+                        <p className="text-sm font-semibold text-emerald-300">Fund via Friendbot</p>
+                        <p className="text-xs text-white/40 mt-0.5">Get 10 000 XLM instantly — Stellar testnet only</p>
+                      </div>
                     </div>
-                    {/* USD preview */}
-                    {agentWallet?.ethPriceUsd && parseFloat(depositAmount) > 0 && (
-                      <p className="text-xs text-white/30 mt-1.5 pl-1">
-                        ≈ {fmt(parseFloat(depositAmount) * agentWallet.ethPriceUsd)}
-                      </p>
+                    {depositError && (
+                      <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2 mb-3">{depositError}</p>
                     )}
+                    <button
+                      onClick={handleDeposit}
+                      className="w-full rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black py-2.5 text-sm font-semibold transition-all flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Fund via Friendbot (free)
+                    </button>
                   </div>
 
-                  {/* Quick-select amounts */}
-                  <div className="flex gap-2">
-                    {["0.01", "0.05", "0.1", "0.5"].map(v => (
-                      <button
-                        key={v}
-                        onClick={() => setDepositAmount(v)}
-                        className={`flex-1 rounded-xl border py-2 text-xs font-semibold transition-all ${
-                          depositAmount === v
-                            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
-                            : "border-white/8 text-white/40 hover:border-white/20 hover:text-white/70"
-                        }`}
-                      >
-                        {v} ETH
-                      </button>
-                    ))}
+                  {/* Option 2: Manual send */}
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="text-xl leading-none">🔑</span>
+                      <div>
+                        <p className="text-sm font-semibold">Send from Freighter</p>
+                        <p className="text-xs text-white/40 mt-0.5">
+                          Open Freighter → send XLM to the address above. Balance updates automatically within a few seconds.
+                        </p>
+                      </div>
+                    </div>
                   </div>
-
-                  {depositError && (
-                    <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2.5">{depositError}</p>
-                  )}
-
-                  {/* CTA */}
-                  <button
-                    onClick={handleDeposit}
-                    disabled={!depositAmount || parseFloat(depositAmount) <= 0}
-                    className="w-full rounded-2xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3.5 text-sm font-semibold transition-all flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                    Send via MetaMask
-                  </button>
-
-                  <p className="text-[10px] text-white/20 text-center leading-relaxed">
-                    Make sure MetaMask is connected to <strong className="text-white/35">Sepolia testnet</strong>. Get free test ETH at sepoliafaucet.com
-                  </p>
                 </div>
               </>
             )}

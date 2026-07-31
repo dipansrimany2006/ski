@@ -1,9 +1,9 @@
 // GET /api/portfolio/stellar-balance?address=G...
-// Fetches all asset balances for a Stellar public key via Horizon.
+// Fetches all asset balances for a Stellar public key via Horizon (testnet).
 
 import { NextRequest, NextResponse } from "next/server";
 import { Horizon } from "@stellar/stellar-sdk";
-import { STELLAR_HORIZON_MAINNET, STELLAR_EXPLORER_BASE } from "@/lib/stellar/assets";
+import { STELLAR_HORIZON_TESTNET, STELLAR_EXPLORER_BASE } from "@/lib/stellar/assets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const server  = new Horizon.Server(STELLAR_HORIZON_MAINNET);
+    const server  = new Horizon.Server(STELLAR_HORIZON_TESTNET);
     const account = await server.loadAccount(address);
 
     const balances = account.balances.map(b => ({
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
       balances,
       xlmBalance,
       explorerUrl: `${STELLAR_EXPLORER_BASE}/account/${address}`,
-      network:     "Stellar Mainnet",
+      network:     "Stellar Testnet",
     });
   } catch (err) {
     const msg = String(err);
@@ -45,8 +45,8 @@ export async function GET(req: NextRequest) {
         balances:    [],
         xlmBalance:  0,
         explorerUrl: `${STELLAR_EXPLORER_BASE}/account/${address}`,
-        network:     "Stellar Mainnet",
-        note:        "Account not yet funded. Send at least 1 XLM to activate.",
+        network:     "Stellar Testnet",
+        note:        "Account not yet funded. Use Friendbot or send XLM to activate.",
       });
     }
     console.error("[stellar-balance]", err);

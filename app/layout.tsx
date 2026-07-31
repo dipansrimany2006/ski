@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter, JetBrains_Mono } from "next/font/google";
 import { GeistPixelLine } from "geist/font/pixel";
-import { AppPrivyProvider } from "@/components/privy-provider";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -26,7 +25,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${jetbrainsMono.variable} ${GeistPixelLine.variable} h-full antialiased`}
     >
       <body className="min-h-full antialiased" suppressHydrationWarning>
-        <AppPrivyProvider>{children}</AppPrivyProvider>
+        {children}
       </body>
     </html>
   );

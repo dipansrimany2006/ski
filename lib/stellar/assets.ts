@@ -74,7 +74,7 @@ export const STELLAR_HORIZON_MAINNET = "https://horizon.stellar.org";
 export const STELLAR_HORIZON_TESTNET = "https://horizon-testnet.stellar.org";
 export const STELLAR_NETWORK_PASSPHRASE_MAINNET = "Public Global Stellar Network ; September 2015";
 export const STELLAR_NETWORK_PASSPHRASE_TESTNET = "Test SDF Network ; September 2015";
-export const STELLAR_EXPLORER_BASE = "https://stellar.expert/explorer/public";
+export const STELLAR_EXPLORER_BASE = "https://stellar.expert/explorer/testnet";
 
 export function getStellarAsset(symbol: string): StellarAsset | undefined {
   return STELLAR_ASSETS.find(a => a.symbol === symbol.toUpperCase());

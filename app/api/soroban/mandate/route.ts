@@ -17,6 +17,12 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Friendbot funds a testnet account with 10 000 XLM. Idempotent — returns
+// 400 if already funded, which we silently ignore.
+async function ensureTestnetFunded(address: string): Promise<void> {
+  await fetch(`https://friendbot.stellar.org/?addr=${encodeURIComponent(address)}`).catch(() => {});
+}
+
 export async function GET(req: NextRequest) {
   void req;
   const session = await getSessionUser(req);
@@ -61,11 +67,14 @@ export async function POST(req: NextRequest) {
   const encryptedKey  = String(user.cfo_wallet_key);
   const riskTolerance = String(user.risk_tolerance ?? "balanced") as "conservative" | "balanced" | "aggressive";
 
-  const params  = mandateParamsFromRisk(riskTolerance);
-  const keypair = getKeypair(encryptedKey);
-
   try {
-    // Check if one already exists — update instead of re-registering.
+    const params  = mandateParamsFromRisk(riskTolerance);
+    const keypair = getKeypair(encryptedKey);
+
+    // Ensure the CFO wallet is funded on testnet (Friendbot is free and idempotent).
+    await ensureTestnetFunded(walletAddress);
+
+    // Check if a mandate already exists — update instead of re-registering.
     const existing = await getMandate(walletAddress);
     let mandate;
     if (existing) {

@@ -77,9 +77,9 @@ export async function executeStellarAgentTool(
     const address = (args.walletAddress as string | undefined) ?? null;
     return {
       address:    address ?? "call POST /api/cfo/wallet to create one",
-      network:    "Stellar Mainnet",
+      network:    "Stellar Testnet",
       dex:        "Stellar DEX (SDEX)",
-      horizonUrl: "https://horizon.stellar.org",
+      horizonUrl: "https://horizon-testnet.stellar.org",
       explorer:   address ? `${STELLAR_EXPLORER_BASE}/account/${address}` : null,
       note:       "Each user has their own isolated Stellar keypair — secret key is AES-256-GCM encrypted server-side.",
     };
@@ -127,7 +127,7 @@ export const STELLAR_AGENT_CONFIG = {
   name:        "Ski — Stellar Autonomous CFO Agent",
   description: "An AI CFO agent that reads Stellar markets via CMC Fear & Greed and multi-strategy signals, then autonomously signs and submits trades on Stellar via the SDEX (Stellar Decentralized Exchange).",
   network:     "stellar",
-  networkPassphrase: "Public Global Stellar Network ; September 2015",
+  networkPassphrase: "Test SDF Network ; September 2015",
   dataSources: ["CoinMarketCap", "Binance OHLCV API", "Pyth Network", "Stellar Horizon"],
   execution:   "Stellar SDEX PathPaymentStrictSend",
   strategies:  ["Momentum", "Mean Reversion", "Volatility", "Volume", "Statistical", "Smart Money", "CMC Sentiment"],

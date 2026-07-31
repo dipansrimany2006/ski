@@ -11,8 +11,8 @@ import {
 } from "@stellar/stellar-sdk";
 import { getKeypair } from "./wallet";
 import {
-  STELLAR_HORIZON_MAINNET,
-  STELLAR_NETWORK_PASSPHRASE_MAINNET,
+  STELLAR_HORIZON_TESTNET,
+  STELLAR_NETWORK_PASSPHRASE_TESTNET,
   STELLAR_USDC_ISSUER,
 } from "./stellar/assets";
 
@@ -24,7 +24,7 @@ export interface SwapResult {
   error?: string;
 }
 
-const server = new Horizon.Server(STELLAR_HORIZON_MAINNET);
+const server = new Horizon.Server(STELLAR_HORIZON_TESTNET);
 
 function makeAsset(code: string, issuer: string | null): Asset {
   return issuer ? new Asset(code, issuer) : Asset.native();
@@ -63,7 +63,7 @@ export async function buyWithXLM(params: {
 
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
-      networkPassphrase: STELLAR_NETWORK_PASSPHRASE_MAINNET,
+      networkPassphrase: STELLAR_NETWORK_PASSPHRASE_TESTNET,
     })
       .addOperation(
         Operation.pathPaymentStrictSend({
@@ -112,7 +112,7 @@ export async function sellToUSDC(params: {
 
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
-      networkPassphrase: STELLAR_NETWORK_PASSPHRASE_MAINNET,
+      networkPassphrase: STELLAR_NETWORK_PASSPHRASE_TESTNET,
     })
       .addOperation(
         Operation.pathPaymentStrictSend({

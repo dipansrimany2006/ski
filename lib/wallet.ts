@@ -4,7 +4,7 @@
 
 import { Keypair, Horizon } from "@stellar/stellar-sdk";
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
-import { STELLAR_HORIZON_MAINNET } from "./stellar/assets";
+import { STELLAR_HORIZON_TESTNET } from "./stellar/assets";
 
 // ── Encryption helpers ─────────────────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ export function getKeypair(encryptedKey: string): Keypair {
 export async function getWalletXLMBalance(encryptedKey: string): Promise<number> {
   try {
     const keypair = getKeypair(encryptedKey);
-    const server  = new Horizon.Server(STELLAR_HORIZON_MAINNET);
+    const server  = new Horizon.Server(STELLAR_HORIZON_TESTNET);
     const account = await server.loadAccount(keypair.publicKey());
     const xlm     = account.balances.find(b => b.asset_type === "native");
     return xlm ? parseFloat(xlm.balance) : 0;

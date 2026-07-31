@@ -3,7 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
 import { WalletButton } from "@/components/wallet-button";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -23,8 +22,6 @@ function UserMenu({ user }: { user: UserProfile }) {
   const [open,       setOpen]       = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const { logout: privyLogout } = usePrivy();
-
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
     document.addEventListener("mousedown", h);
@@ -35,8 +32,6 @@ function UserMenu({ user }: { user: UserProfile }) {
     setSigningOut(true);
     setOpen(false);
     try {
-      // Disconnect wallet first, then clear JWT session
-      await privyLogout().catch(() => {});
       await fetch("/api/auth/logout", { method: "POST" });
     } finally {
       window.location.href = "/login";

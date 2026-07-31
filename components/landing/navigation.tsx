@@ -2,14 +2,23 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
 
 export function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false);
+  const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Silently check if the user has an active session — no redirect, just UI.
+  useEffect(() => {
+    fetch("/api/user")
+      .then(r => { if (r.ok) setAuthed(true); })
+      .catch(() => {});
   }, []);
 
   return (
@@ -48,12 +57,21 @@ export function Navigation() {
             ))}
           </div>
 
-          <a
-            href="/login"
-            className="rounded-xl bg-foreground hover:bg-foreground/90 text-background px-4 py-2 text-sm font-semibold transition-colors"
-          >
-            Start free
-          </a>
+          {authed ? (
+            <Link
+              href="/explore"
+              className="rounded-xl bg-foreground hover:bg-foreground/90 text-background px-4 py-2 text-sm font-semibold transition-colors"
+            >
+              Go to app
+            </Link>
+          ) : (
+            <a
+              href="/login"
+              className="rounded-xl bg-foreground hover:bg-foreground/90 text-background px-4 py-2 text-sm font-semibold transition-colors"
+            >
+              Start free
+            </a>
+          )}
         </div>
       </nav>
     </header>

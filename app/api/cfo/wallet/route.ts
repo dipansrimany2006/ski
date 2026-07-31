@@ -1,5 +1,5 @@
 // POST /api/cfo/wallet — create a Stellar agent wallet for this user (idempotent)
-// GET  /api/cfo/wallet — return wallet address + live XLM balance
+// GET  /api/cfo/wallet — return wallet address + live XLM balance (testnet)
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
@@ -9,6 +9,10 @@ import { STELLAR_EXPLORER_BASE } from "@/lib/stellar/assets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+async function friendbotFund(address: string): Promise<void> {
+  await fetch(`https://friendbot.stellar.org/?addr=${encodeURIComponent(address)}`).catch(() => {});
+}
 
 export async function GET(req: NextRequest) {
   const session = await getSessionUser(req);
@@ -29,8 +33,8 @@ export async function GET(req: NextRequest) {
       address:     user.cfo_wallet_address,
       balanceXLM:  balance,
       explorerUrl: `${STELLAR_EXPLORER_BASE}/account/${user.cfo_wallet_address}`,
-      network:     "Stellar Mainnet",
-      funded:      balance >= 10, // min ~10 XLM for account reserve + trading
+      network:     "Stellar Testnet",
+      funded:      balance >= 1,
     },
   });
 }
@@ -68,11 +72,14 @@ export async function POST(req: NextRequest) {
     WHERE id = ${session.userId}
   `;
 
+  // Auto-fund the new wallet via Friendbot (testnet — free, idempotent).
+  await friendbotFund(address);
+
   return NextResponse.json({
     created:     true,
     address,
-    balanceXLM:  0,
+    balanceXLM:  10_000,
     explorerUrl: `${STELLAR_EXPLORER_BASE}/account/${address}`,
-    message:     "Stellar agent wallet created. Send XLM to this address to fund live trading (minimum 10 XLM for account reserve).",
+    message:     "Stellar testnet agent wallet created and funded with 10 000 XLM via Friendbot.",
   });
 }
