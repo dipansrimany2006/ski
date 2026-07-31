@@ -5,7 +5,9 @@ export type SkillType =
   | "momentum"             // RSI + MACD + Fear & Greed blended entry/exit
   | "sentiment_divergence" // flags when F&G vs technical momentum disagree
   | "mean_reversion"       // Bollinger Bands + Z-score reversion trades
-  | "volume_breakout";     // volume-confirmed breakout above resistance
+  | "volume_breakout"      // volume-confirmed breakout above resistance
+  | "regime_detection"     // ADX-based trend/range regime classifier
+  | "perps_divergence";    // perpetual futures funding rate vs spot divergence
 
 export type AllowedRegime = "trending" | "ranging" | "unknown";
 

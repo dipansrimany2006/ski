@@ -42,6 +42,22 @@ Your strategy buys breakouts above recent resistance only when volume surges con
 - Avoid false breakouts: require MACD crossover (macd_signal > 0.05) as additional filter
 - Position size scales with signal strength; reduce size if Fear & Greed > 75 (overheated)
 - Exit: trailing stop (1.5× ATR), time limit (24 bars), or signal reversal`,
+
+  regime_detection: `You are a quantitative strategist building a market regime detection skill.
+Your strategy uses ADX and volatility metrics to classify the market as trending, ranging, or unknown before applying any directional bias.
+- Trending regime (ADX > 25): follow momentum; enter on blended_signal > 0.10, larger position size
+- Ranging regime (ADX < 20): fade extremes; enter on mean-reversion signals only, tighter stops
+- Unknown regime: reduce position size by 50%, require higher signal confidence before entry
+- Regime shifts: exit immediately when regime changes against the open trade direction
+- Exit: ATR-based stops scaled to regime volatility (wider in trending, tighter in ranging)`,
+
+  perps_divergence: `You are a quantitative strategist specialising in perpetual futures funding rate divergence.
+Your strategy exploits when funding rates (market sentiment) diverge from spot price momentum.
+- Bullish divergence: funding rate negative (shorts pay longs) but spot momentum positive → buy spot, collect funding
+- Bearish divergence: funding rate very positive (longs pay shorts) but spot weakening → sell or avoid
+- No divergence: skip the trade; alignment between funding and price provides no edge
+- Entry: require both divergence AND blended_signal confirmation; scale size with divergence magnitude
+- Exit: funding rate normalises (divergence collapses), time limit (36 bars), or stop loss at 1.5× ATR`,
 };
 
 // ── Market context builder ──────────────────────────────────────────────────

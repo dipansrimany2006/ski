@@ -4,7 +4,7 @@
 
 Built for the **Stellar / Soroban Hackathon**.
 
-**Live demo:** https://ski-trade.vercel.app  
+**Live demo:** https://ski-cfo.vercel.app  
 **Demo video:** 
 **Contract (testnet):** `CCIAQW52A3AWHKJH2THRCA4HOJFZUKOTKPME3Z6FSOBJL5NPZCAJZDW7`  
 **Explorer:** https://stellar.expert/explorer/testnet/contract/CCIAQW52A3AWHKJH2THRCA4HOJFZUKOTKPME3Z6FSOBJL5NPZCAJZDW7
